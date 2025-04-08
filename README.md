@@ -1,31 +1,30 @@
-# Otimização de Rotas com LSTM e Grafos
+# Route Optimization with LSTM and Graphs
 
-![Tráfego e Rotas](https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Dijkstra_Animation.gif/500px-Dijkstra_Animation.gif)
+![Traffic and Routes](https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Dijkstra_Animation.gif/500px-Dijkstra_Animation.gif)
 
-# Sobre o Projeto
-Este projeto usa **Redes Neurais LSTM** e **Grafos** para prever o tempo de viagem ao longo do dia e otimizar rotas. O objetivo é criar um modelo que analisa padrões de tráfego e sugere o caminho mais rápido entre pontos de interesse.
+# About the Project
+This project uses **LSTM Neural Networks** and **Graphs** to predict travel times throughout the day and optimize routes. The goal is to create a model that analyzes traffic patterns and suggests the fastest route between points of interest.
 
-# Funcionalidades
-- Simulação de dados de tráfego baseados em variações diárias.<br>
-- Treinamento de um modelo **LSTM** para previsão de tempo de viagem.<br>
-- Construção de um **Grafo Ponderado** representando as rotas.<br>
-- Aplicação do **Algoritmo de Dijkstra** para encontrar a melhor rota.<br>
-- Visualização gráfica das previsões e da rede de rotas.
+# Features
+- Simulation of traffic data based on daily variations.<br>
+- Training of an **LSTM** model for travel time prediction.<br>
+- Construction of a **Weighted Graph** representing the routes.<br>
+- Application of the **Dijkstra Algorithm** to find the best route.<br>
+- Graphical visualization of variations and the route network.
 
-# Tecnologias Utilizadas
+# Technologies Used
 - **Python (3.9.21)**
-- **NumPy, Pandas** (Manipulação de dados)
-- **Matplotlib** (Visualização)
-- **NetworkX** (Grafos e Dijkstra)
-- **Scikit-learn** (Normalização dos dados)
-- **TensorFlow/Keras** (Modelo LSTM)
+- **NumPy, Pandas** (Data manipulation)
+- **Matplotlib** (Visualization)
+- **NetworkX** (Graphs and Dijkstra)
+- **Scikit-learn** (Data normalization)
+- **TensorFlow/Keras** (LSTM model)
 
-# Executar o Código
+# Run the Code
 ```bash
-python otimizacao_rotas.py
+python routes.py
 ```
 
-# Visualizações Geradas
-- **Gráfico de previsão de tráfego**
-- **Mapa de rotas otimizadas com tempos de viagem**
-# RouteOptimization
+# Generated Visualizations
+- **Traffic forecast graph**
+- **Optimized route map with travel times**
