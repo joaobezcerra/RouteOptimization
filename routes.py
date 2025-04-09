@@ -6,142 +6,308 @@ from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
-# Define uma semente aleatória para garantir a reprodutibilidade dos resultados.
+# Define uma semente aleatória para garantir a reprodutibilidade dos resultados
 np.random.seed(42)
 
-# Cria um array representando as horas do dia (de 0 a 23).
+# Configura o estilo do matplotlib para gráficos mais atraentes
+plt.style.use('seaborn-v0_8-whitegrid')
+
+# Cidades do trajeto Porto Alegre até São Luís (Maranhão)
+# Selecionamos cidades importantes que formam um trajeto possível
+cities = ["Porto Alegre", "Florianópolis", "Curitiba", "São Paulo", 
+          "Rio de Janeiro", "Belo Horizonte", "Brasília", "Palmas", 
+          "Imperatriz", "São Luís"]
+
+# Definir a base de dados de tráfego por hora do dia (0 a 23)
 horas = np.arange(0, 24, 1)
 
-# Simula o tempo de viagem ao longo do dia usando uma função senoidal (para representar padrões cíclicos)
-# e adiciona ruído normal para tornar os dados mais realistas.
-tempo_viagem = np.sin(horas / 24 * 2 * np.pi) + np.random.normal(0, 0.1, len(horas))
+# Cria função para simular tráfego mais realista
+def simular_trafego(hora):
+    # Base de tráfego (valor médio)
+    base = 1.0
+    
+    # Pico da manhã (7-9h)
+    if 7 <= hora <= 9:
+        base += 0.8 * np.sin((hora - 7) * np.pi / 2)
+    
+    # Pico da tarde (17-19h)
+    elif 17 <= hora <= 19:
+        base += 0.9 * np.sin((hora - 17) * np.pi / 2)
+    
+    # Noite (22-5h) - tráfego reduzido
+    elif hora >= 22 or hora <= 5:
+        base -= 0.4
+    
+    # Adiciona ruído aleatório
+    noise = np.random.normal(0, 0.1)
+    
+    return base + noise
 
-# Inicializa um MinMaxScaler para normalizar os dados de tempo de viagem para o intervalo [0, 1].
-# Isso é importante para o treinamento de redes neurais.
+# Gerar dados de tráfego para cada hora
+tempo_viagem = np.array([simular_trafego(h) for h in horas])
+
+# Normaliza os dados de tráfego para treinamento
 scaler = MinMaxScaler()
-
-# Ajusta o scaler aos dados de tempo de viagem e os transforma. O reshape(-1, 1) é necessário
-# porque o scaler espera uma matriz 2D.
 tempo_viagem_scaled = scaler.fit_transform(tempo_viagem.reshape(-1, 1))
 
-# Cria um DataFrame do pandas para organizar os dados de hora e tempo de viagem escalonado.
+# Cria DataFrame
 df = pd.DataFrame({"hora": horas, "tempo_viagem": tempo_viagem_scaled.flatten()})
 
-# Define uma função para criar sequências de dados para treinamento de modelos de séries temporais.
-# A função recebe os dados e o comprimento da sequência desejada (seq_length).
+# Função para criar sequências de treinamento
 def create_sequences(data, seq_length=3):
     X, y = [], []
-    # Itera pelos dados, criando janelas de tamanho seq_length como entrada (X)
-    # e o valor seguinte como a saída esperada (y).
+    # Cria sequências de entrada (X) e saída (y)
     for i in range(len(data) - seq_length):
         X.append(data[i : i + seq_length])
         y.append(data[i + seq_length])
-    # Converte as listas de entrada e saída em arrays numpy.
     return np.array(X), np.array(y)
 
-# Define o comprimento da sequência para 3 (usaremos as últimas 3 horas para prever a próxima).
+# Define o comprimento da sequência
 seq_length = 3
 
-# Chama a função create_sequences para gerar os dados de entrada (X) e saída (y) para o modelo LSTM.
+# Gera os dados de treinamento
 X, y = create_sequences(tempo_viagem_scaled, seq_length)
-
-# Redimensiona a entrada X para o formato esperado por uma camada LSTM:
-# (número de amostras, número de passos de tempo, número de features).
-# Neste caso, temos 1 feature (o tempo de viagem escalonado).
 X = X.reshape(X.shape[0], X.shape[1], 1)
 
-# Define a arquitetura do modelo de rede neural sequencial usando Keras.
+# Define e treina o modelo LSTM
 model = Sequential([
-    # Primeira camada LSTM com 50 unidades, retornando sequências (para a próxima camada LSTM).
-    # Define o formato de entrada para a primeira camada: sequências de comprimento seq_length com 1 feature.
     LSTM(50, return_sequences=True, input_shape=(seq_length, 1)),
-    # Segunda camada LSTM com 50 unidades. Por padrão, retorna apenas a última saída.
     LSTM(50),
-    # Camada densa (totalmente conectada) com 1 unidade para a previsão do tempo de viagem.
     Dense(1)
 ])
 
-# Compila o modelo, definindo o otimizador ('adam' é um otimizador comum),
-# a função de perda ('mse' - erro quadrático médio, adequado para regressão) e as métricas (não especificadas aqui).
 model.compile(optimizer='adam', loss='mse')
-
-# Treina o modelo com os dados de entrada X e saída y.
-# epochs: número de vezes que o modelo percorrerá todo o conjunto de treinamento.
-# batch_size: número de amostras a serem processadas por vez durante o treinamento.
-# verbose=1: exibe informações sobre o progresso do treinamento.
 model.fit(X, y, epochs=50, batch_size=8, verbose=1)
 
-# Faz previsões usando o modelo treinado com os dados de entrada X.
+# Realiza previsões
 predictions = model.predict(X)
 
-# Inverte a escala das previsões para obter os valores de tempo de viagem na escala original (em minutos).
+# Converte previsões para a escala original
 predicted_traffic = scaler.inverse_transform(predictions)
 
-# Cria um grafo não direcionado usando a biblioteca NetworkX para representar a rede de rotas.
+# Cria grafo
 G = nx.Graph()
 
-# Define uma lista de cidades que farão parte da rede.
-cities = ["A", "B", "C", "D", "E"]
+# Cria dicionário com coordenadas geográficas (latitude, longitude) das cidades
+cities_pos = {
+    'Porto Alegre': (-30.0346, -51.2177),
+    'Florianópolis': (-27.5969, -48.5495),
+    'Curitiba': (-25.4297, -49.2719),
+    'São Paulo': (-23.5505, -46.6333),
+    'Rio de Janeiro': (-22.9068, -43.1729),
+    'Belo Horizonte': (-19.9167, -43.9345),
+    'Brasília': (-15.7801, -47.9292),
+    'Palmas': (-10.2491, -48.3243),
+    'Imperatriz': (-5.5264, -47.4712),
+    'São Luís': (-2.5307, -44.3068)
+}
 
-# Adiciona cada cidade como um nó no grafo.
+# Adiciona as cidades como nós
 for city in cities:
     G.add_node(city)
 
-# Define as conexões (arestas) entre as cidades e seus respectivos pesos.
-# Os pesos representam o tempo de viagem entre as cidades, e são dinamicamente ajustados
-# adicionando a previsão de tráfego (a primeira previsão para a primeira aresta, a segunda para a segunda, etc.).
-edges = [
-    ("A", "B", 10 + predicted_traffic[0][0]),
-    ("B", "C", 15 + predicted_traffic[1][0]),
-    ("C", "D", 5 + predicted_traffic[2][0]),
-    ("D", "E", 8 + predicted_traffic[3][0]),
-    ("A", "D", 20 + predicted_traffic[4][0])
+# Definição das distâncias aproximadas entre cidades (km)
+# e uso das previsões de tráfego para ajustar os tempos de viagem
+distances = [
+    ("Porto Alegre", "Florianópolis", 460),
+    ("Florianópolis", "Curitiba", 300),
+    ("Curitiba", "São Paulo", 408),
+    ("São Paulo", "Rio de Janeiro", 429),
+    ("Rio de Janeiro", "Belo Horizonte", 442),
+    ("Belo Horizonte", "Brasília", 716),
+    ("Brasília", "Palmas", 973),
+    ("Palmas", "Imperatriz", 623),
+    ("Imperatriz", "São Luís", 637),
+    # Algumas conexões alternativas
+    ("São Paulo", "Belo Horizonte", 586),
+    ("Brasília", "Imperatriz", 1311),
+    ("Curitiba", "Belo Horizonte", 1004),
+    ("Belo Horizonte", "Palmas", 1690),
 ]
 
-# Adiciona as arestas ponderadas ao grafo. O argumento 'weight' armazena o peso de cada aresta.
+# Converte distâncias em tempo de viagem (assumindo velocidade média de 80 km/h)
+# e adiciona o impacto do tráfego
+edges = []
+for i, (city1, city2, dist) in enumerate(distances):
+    # Usa previsões diferentes para cada conexão, reutilizando em ciclo se necessário
+    traffic_index = i % len(predicted_traffic)
+    
+    # Calcula o tempo base em horas (distância / velocidade média)
+    base_time = dist / 80.0
+    
+    # Adiciona o impacto do tráfego (entre 0% e 50% mais tempo)
+    traffic_factor = 1 + 0.5 * predicted_traffic[traffic_index][0]
+    
+    # Tempo total em horas
+    travel_time = base_time * traffic_factor
+    
+    # Adiciona à lista de arestas
+    edges.append((city1, city2, travel_time))
+
+# Adiciona as arestas ponderadas ao grafo
 G.add_weighted_edges_from(edges)
 
-# Define a cidade de origem e a cidade de destino para encontrar o caminho mais curto.
-source, target = "A", "E"
+# Define origem e destino
+source, target = "Porto Alegre", "São Luís"
 
-# Usa o algoritmo de Dijkstra (implementado no NetworkX) para encontrar o caminho mais curto
-# entre a origem e o destino, considerando o peso das arestas ('weight').
+# Encontra caminho mais curto
 shortest_path = nx.shortest_path(G, source=source, target=target, weight='weight')
 
-# Imprime o caminho mais curto encontrado.
+# Calcula o tempo total de viagem
+total_time = 0
+path_edges = list(zip(shortest_path[:-1], shortest_path[1:]))
+for u, v in path_edges:
+    total_time += G[u][v]['weight']
+
+# Seleciona 3 cidades intermediárias mais relevantes
+intermediary_cities = shortest_path[1:-1]
+if len(intermediary_cities) > 3:
+    # Estratégia: pegar cidades em pontos distribuídos do trajeto
+    indices = np.linspace(0, len(intermediary_cities)-1, 3).astype(int)
+    key_cities = [intermediary_cities[i] for i in indices]
+else:
+    key_cities = intermediary_cities
+
+# Exibe resultados no console
 print(f"Melhor rota de {source} para {target}: {shortest_path}")
+print(f"Cidades intermediárias mais importantes: {key_cities}")
+print(f"Tempo total estimado: {total_time:.1f} horas ({total_time/24:.1f} dias de viagem)")
 
-# Cria uma figura e um conjunto de subplots para visualizar os resultados.
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+# =======================================================
+# VISUALIZAÇÃO MELHORADA DOS RESULTADOS
+# =======================================================
 
-# Gráfico de previsão de tráfego (primeiro subplot)
-# Plota os valores reais do tempo de viagem (após a sequência inicial de 3 horas).
-axes[0].plot(horas[seq_length:], scaler.inverse_transform(y.reshape(-1,1)), label="Real")
-# Plota os valores previstos do tempo de viagem (correspondentes aos valores reais plotados).
-axes[0].plot(horas[seq_length:], predicted_traffic, label="Previsto", linestyle="dashed")
-# Define o rótulo do eixo x.
-axes[0].set_xlabel("Hora do Dia")
-# Define o rótulo do eixo y.
-axes[0].set_ylabel("Tempo de Viagem (Min)")
-# Adiciona uma legenda ao gráfico.
-axes[0].legend()
-# Define o título do subplot.
-axes[0].set_title("Previsão de Tráfego")
+# Cria uma figura maior com título principal
+fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+fig.suptitle('Sistema de Navegação: Porto Alegre até Maranhão', fontsize=18, y=0.98)
 
-# Layout para o grafo da rede de rotas (segundo subplot)
-# Usa o algoritmo de layout de primavera para posicionar os nós do grafo de forma visualmente agradável.
-pos = nx.spring_layout(G)
-# Obtém os pesos das arestas do grafo.
-labels = nx.get_edge_attributes(G, 'weight')
-# Desenha o grafo com os nós rotulados, tamanho e cor dos nós, e tamanho da fonte dos rótulos.
-nx.draw(G, pos, with_labels=True, node_size=3000, node_color='lightblue', font_size=12, ax=axes[1])
-# Desenha os rótulos das arestas (os tempos de viagem previstos) no grafo, formatando-os para exibir uma casa decimal.
-nx.draw_networkx_edge_labels(G, pos, edge_labels={k: f"{v:.1f} min" for k, v in labels.items()}, ax=axes[1])
-# Define o título do subplot.
-axes[1].set_title("Rede de Rotas com Previsão de Tráfego")
+# Gráfico 1: Previsão de tráfego
+axes[0].plot(horas[seq_length:], scaler.inverse_transform(y.reshape(-1,1)), 
+             label="Tráfego Real", linewidth=2, color='blue')
+axes[0].plot(horas[seq_length:], predicted_traffic, 
+             label="Tráfego Previsto", linestyle="dashed", linewidth=2, color='red')
+axes[0].set_xlabel("Hora do Dia", fontsize=12)
+axes[0].set_ylabel("Índice de Tráfego", fontsize=12)
+axes[0].legend(fontsize=10)
+axes[0].set_title("Previsão de Tráfego ao Longo do Dia", fontsize=14)
+axes[0].grid(True)
 
-# Ajusta o layout dos subplots para evitar sobreposição.
+# Adiciona sombreamento para destacar picos de tráfego
+axes[0].axvspan(7, 9, alpha=0.2, color='orange', label='Pico da Manhã')
+axes[0].axvspan(17, 19, alpha=0.2, color='orange', label='Pico da Tarde')
+axes[0].text(8, 0.2, "Pico da Manhã", ha='center', fontsize=10)
+axes[0].text(18, 0.2, "Pico da Tarde", ha='center', fontsize=10)
+
+# Gráfico 2: Grafo de rotas
+# pos = nx.spring_layout(G, seed=42, k=.5)  # k controla o espaçamento entre os nós
+pos = cities_pos
+pos = {city: (lat, long) for (city, (long, lat)) in cities_pos.items()}
+
+# Destacar o caminho mais curto
+edge_colors = ['red' if (u, v) in path_edges or (v, u) in path_edges else 'gray' for u, v in G.edges()]
+edge_widths = [3 if (u, v) in path_edges or (v, u) in path_edges else 1 for u, v in G.edges()]
+
+# Desenha o grafo
+nx.draw(G, pos, with_labels=True, node_size=3000, 
+        node_color=['gold' if node == source or node == target else 
+                   'lightgreen' if node in key_cities else 
+                   'lightblue' if node in shortest_path else 
+                   'white' for node in G.nodes()],
+        font_size=10, font_weight='bold', 
+        edge_color=edge_colors, width=edge_widths, ax=axes[1])
+
+# Adiciona os pesos das arestas (tempo em horas)
+edge_labels = {(u, v): f"{d['weight']:.1f}h" for u, v, d in G.edges(data=True)}
+nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, ax=axes[1])
+
+# Adiciona legenda para o mapa
+legend_elements = [
+    Patch(facecolor='gold', edgecolor='black', label='Origem/Destino'),
+    Patch(facecolor='lightgreen', edgecolor='black', label='Cidades-chave'),
+    Patch(facecolor='lightblue', edgecolor='black', label='Na rota'),
+    Patch(facecolor='white', edgecolor='black', label='Fora da rota'),
+    Line2D([0], [0], color='red', lw=3, label='Rota selecionada'),
+    Line2D([0], [0], color='gray', lw=1, label='Conexões alternativas')
+]
+
+axes[1].legend(handles=legend_elements, loc='lower right', fontsize=10)
+axes[1].set_title("Rota Otimizada de Porto Alegre até São Luís (Maranhão)", fontsize=14)
+
+# Ajusta o layout
+plt.tight_layout(rect=[0, 0, 1, 0.95])  # Espaço para o título principal
+
+# Salva os gráficos em vários formatos
+output_dir = "./"  # Diretório onde os gráficos serão salvos
+
+# Salva o gráfico completo (com os dois subplots)
+plt.savefig(f'{output_dir}rota_porto_alegre_maranhao.png', dpi=300, bbox_inches='tight')
+plt.savefig(f'{output_dir}rota_porto_alegre_maranhao.pdf', bbox_inches='tight')
+plt.savefig(f'{output_dir}rota_porto_alegre_maranhao.svg', bbox_inches='tight')
+
+# ===========================================================
+# SALVA GRÁFICOS INDIVIDUAIS EM ARQUIVOS SEPARADOS
+# ===========================================================
+
+# Salva o gráfico de previsão de tráfego separadamente
+fig_traffic = plt.figure(figsize=(12, 8))
+plt.plot(horas[seq_length:], scaler.inverse_transform(y.reshape(-1,1)), 
+         label="Tráfego Real", linewidth=2, color='blue')
+plt.plot(horas[seq_length:], predicted_traffic, 
+         label="Tráfego Previsto", linestyle="dashed", linewidth=2, color='red')
+plt.axvspan(7, 9, alpha=0.2, color='orange')
+plt.axvspan(17, 19, alpha=0.2, color='orange')
+plt.text(8, 0.2, "Pico da Manhã", ha='center', fontsize=10)
+plt.text(18, 0.2, "Pico da Tarde", ha='center', fontsize=10)
+plt.xlabel("Hora do Dia", fontsize=12)
+plt.ylabel("Índice de Tráfego", fontsize=12)
+plt.legend(fontsize=10)
+plt.title("Previsão de Tráfego ao Longo do Dia", fontsize=16)
+plt.grid(True)
 plt.tight_layout()
-# Exibe a figura com os dois subplots.
+plt.savefig(f'{output_dir}previsao_trafego.png', dpi=300, bbox_inches='tight')
+plt.close(fig_traffic)
+
+# Salva o mapa de rota separadamente
+fig_route = plt.figure(figsize=(14, 12))
+nx.draw(G, pos, with_labels=True, node_size=3000, 
+        node_color=['gold' if node == source or node == target else 
+                   'lightgreen' if node in key_cities else 
+                   'lightblue' if node in shortest_path else 
+                   'white' for node in G.nodes()],
+        font_size=12, font_weight='bold', 
+        edge_color=edge_colors, width=edge_widths)
+nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=10)
+
+# Adiciona a legenda
+plt.legend(handles=legend_elements, loc='lower right', fontsize=12)
+plt.title("Rota Otimizada de Porto Alegre até São Luís (Maranhão)", fontsize=16)
+plt.tight_layout()
+plt.savefig(f'{output_dir}mapa_rota.png', dpi=300, bbox_inches='tight')
+plt.close(fig_route)
+
+# Cria um arquivo de texto com os detalhes da rota calculada
+with open(f'{output_dir}detalhes_rota.txt', 'w') as f:
+    f.write(f"DETALHES DA ROTA CALCULADA\n")
+    f.write(f"==========================\n\n")
+    f.write(f"Origem: {source}\n")
+    f.write(f"Destino: {target}\n\n")
+    f.write(f"Rota completa: {' -> '.join(shortest_path)}\n\n")
+    f.write(f"Cidades-chave selecionadas: {', '.join(key_cities)}\n\n")
+    f.write(f"Tempo total estimado: {total_time:.1f} horas ({total_time/24:.1f} dias)\n\n")
+    f.write(f"Detalhes de cada trecho:\n")
+    
+    for i in range(len(shortest_path)-1):
+        city1, city2 = shortest_path[i], shortest_path[i+1]
+        time = G[city1][city2]['weight']
+        f.write(f"  {city1} -> {city2}: {time:.1f} horas\n")
+
+# Exibe o gráfico na tela (se estiver executando interativamente)
+plt.figure(figsize=(20, 10))
+plt.figtext(0.5, 0.01, "Gráficos salvos com sucesso! Verifique os arquivos gerados.", 
+           ha='center', fontsize=14, bbox=dict(facecolor='yellow', alpha=0.5))
+plt.axis('off')
+plt.tight_layout()
 plt.show()

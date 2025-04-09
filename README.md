@@ -28,3 +28,5 @@ python routes.py
 # Generated Visualizations
 - **Traffic forecast graph**
 - **Optimized route map with travel times**
+
+![Traffic Prediction](imgs/rota_porto_alegre_maranhao.svg)
